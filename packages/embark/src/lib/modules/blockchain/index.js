@@ -1,6 +1,5 @@
 import async from 'async';
-const {__} = require('embark-i18n');
-const Web3RequestManager = require('web3-core-requestmanager');
+const { __ } = require('embark-i18n');
 
 import BlockchainAPI from "./api";
 class Blockchain {
@@ -17,39 +16,32 @@ class Blockchain {
     embark.registerActionForEvent("pipeline:generateAll:before", this.addArtifactFile.bind(this));
 
     this.blockchainNodes = {};
-    this.events.setCommandHandler("blockchain:node:register", (clientName, startCb) => {
-      this.blockchainNodes[clientName] = startCb;
+    this.events.setCommandHandler("blockchain:node:register", (clientName, isStarted = () => false, start) => {
+      this.blockchainNodes[clientName] = { isStarted, start };
     });
 
-    this.events.setCommandHandler("blockchain:node:start", async (blockchainConfig, cb) => {
-      const requestManager = new Web3RequestManager.Manager(blockchainConfig.endpoint);
+    this.events.setCommandHandler("blockchain:node:start", (blockchainConfig, cb) => {
 
-      const ogConsoleError = console.error;
-      // TODO remove this once we update to web3 2.0
-      // TODO in web3 1.0, it console.errors "connection not open on send()" even if we catch the error
-      console.error = (...args) => {
-        if (args[0].indexOf('connection not open on send()') > -1) {
-          return;
+      const clientName = blockchainConfig.client;
+      const client = this.blockchainNodes[clientName];
+
+      if (!client) return cb(`Blockchain client ${clientName} not found, please register this node using 'blockchain:node:register'.`);
+
+      // check if we should should start
+      client.isStarted.call(client, (err, isStarted) => {
+        if (err) {
+          return cb(err);
         }
-        ogConsoleError(...args);
-      };
-      requestManager.send({method: 'eth_accounts'}, (err, _accounts) => {
-        console.error = ogConsoleError;
-        if (!err) {
-          // Node is already started
+        if (isStarted) {
+          // Node may already be started
           this.events.emit("blockchain:started");
           return cb(null, true);
         }
-        const clientName = blockchainConfig.client;
-        const client = this.blockchainNodes[clientName];
-        if (!client) return cb("client " + clientName + " not found");
-
-        let onStart = () => {
+        // start node
+        client.start.call(client, () => {
           this.events.emit("blockchain:started", clientName);
           cb();
-        };
-
-        client.apply(client, [onStart]);
+        });
       });
     });
     this.blockchainApi.registerAPIs("ethereum");

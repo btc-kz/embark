@@ -1,8 +1,8 @@
 import { __ } from 'embark-i18n';
-import {BlockchainClient} from "../geth/blockchain";
-const {normalizeInput} = require('embark-utils');
-import {BlockchainProcessLauncher} from './blockchainProcessLauncher';
-import {ws, rpc} from './check.js';
+import { BlockchainClient } from "../geth/blockchain";
+const { normalizeInput } = require('embark-utils');
+import { BlockchainProcessLauncher } from './blockchainProcessLauncher';
+import { ws, rpc } from './check.js';
 const constants = require('embark-core/constants');
 
 class Parity {
@@ -23,24 +23,34 @@ class Parity {
       return;
     }
 
-    this.events.request("blockchain:node:register", constants.blockchain.clients.parity, (readyCb) => {
-      this.events.request('processes:register', 'blockchain', {
-        launchFn: (cb) => {
-          // this.startBlockchainNode(readyCb);
-          this.startBlockchainNode(cb);
-        },
-        stopFn: (cb) => {
-          this.stopBlockchainNode(cb);
-        }
+    this.events.request("blockchain:node:register", constants.blockchain.clients.parity,
+      (isStartedCb) => {
+        this._suppressConnectionOpenError(true);
+        this._doCheck((state) => {
+          this._suppressConnectionOpenError(false);
+          return isStartedCb(null, state.status === "on");
+        });
+      },
+      (readyCb) => {
+        this._suppressConnectionOpenError(true);
+        this.events.request('processes:register', 'blockchain', {
+          launchFn: (cb) => {
+            // this.startBlockchainNode(readyCb);
+            this.startBlockchainNode(cb);
+          },
+          stopFn: (cb) => {
+            this.stopBlockchainNode(cb);
+          }
+        });
+        this.events.request("processes:launch", "blockchain", (err) => {
+          this._suppressConnectionOpenError(false);
+          if (err) {
+            this.logger.error(`Error launching blockchain process: ${err.message || err}`);
+          }
+          readyCb();
+        });
+        this.registerServiceCheck();
       });
-      this.events.request("processes:launch", "blockchain", (err) => {
-        if (err) {
-          this.logger.error(`Error launching blockchain process: ${err.message || err}`);
-        }
-        readyCb();
-      });
-      this.registerServiceCheck();
-    });
   }
 
   shouldInit() {
@@ -51,23 +61,41 @@ class Parity {
   }
 
   _getNodeState(err, version, cb) {
-    if (err) return cb({name: "Ethereum node not found", status: 'off'});
+    if (err) return cb({ name: "Ethereum node not found", status: 'off' });
 
     let nodeName = "parity";
     let versionNumber = version.split("-")[0];
     let name = nodeName + " " + versionNumber + " (Ethereum)";
-    return cb({name, status: 'on'});
+    return cb({ name, status: 'on' });
+  }
+
+  _doCheck(cb) {
+    const { rpcHost, rpcPort, wsRPC, wsHost, wsPort } = this.blockchainConfig;
+    if (wsRPC) {
+      return ws(wsHost, wsPort + 10, (err, version) => this._getNodeState(err, version, cb));
+    }
+    rpc(rpcHost, rpcPort + 10, (err, version) => this._getNodeState(err, version, cb));
+  }
+
+  _suppressConnectionOpenError(enable) {
+    if (!enable) {
+      console.error = this.ogConsoleError;
+      return;
+    }
+    this.ogConsoleError = console.error;
+    // TODO remove this once we update to web3 2.0
+    // TODO in web3 1.0, it console.errors "connection not open on send()" even if we catch the error
+    console.error = (...args) => {
+      if (args[0].indexOf('connection not open on send()') > -1) {
+        return;
+      }
+      this.ogConsoleError(...args);
+    };
   }
 
   // TODO: need to get correct port taking into account the proxy
   registerServiceCheck() {
-    this.events.request("services:register", 'Ethereum', (cb) => {
-      const {rpcHost, rpcPort, wsRPC, wsHost, wsPort} = this.blockchainConfig;
-      if (wsRPC) {
-        return ws(wsHost, wsPort + 10, (err, version) => this._getNodeState(err, version, cb));
-      }
-      rpc(rpcHost, rpcPort + 10, (err, version) => this._getNodeState(err, version, cb));
-    }, 5000, 'off');
+    this.events.request("services:register", 'Ethereum', this._doCheck.bind(this), 5000, 'off');
   }
 
   startBlockchainNode(callback) {
