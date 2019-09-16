@@ -2,10 +2,10 @@ import bodyParser from "body-parser";
 import "colors";
 import cors from "cors";
 import {Embark, Plugins} /* supplied by @types/embark in packages/embark-typings */ from "embark";
-import { __ } from "embark-i18n";
-import { embarkPath } from "embark-utils";
+import {__} from "embark-i18n";
+import {embarkPath} from "embark-utils";
 import express, {NextFunction, Request, Response} from "express";
-import expressWs, { Application } from "express-ws";
+import expressWs, {Application} from "express-ws";
 import findUp from "find-up";
 import helmet from "helmet";
 import * as http from "http";
@@ -46,9 +46,11 @@ export default class Server {
 
   private get isInsideMonorepo() {
     if (this._isInsideMonorepo === null) {
-      this._isInsideMonorepo = this.embark.fs.existsSync(embarkPath("../../packages/embark")) &&
-        this.embark.fs.existsSync(embarkPath("../../lerna.json")) &&
-        path.resolve(embarkPath("../../packages/embark")) === embarkPath();
+      try {
+        this._isInsideMonorepo = !!require.resolve('embark-inside-monorepo');
+      } catch (err) {
+        this._isInsideMonorepo = false;
+      }
     }
     return this._isInsideMonorepo;
   }
@@ -213,17 +215,17 @@ export default class Server {
     instance.app.use(cors());
 
     instance.app.use(bodyParser.json());
-    instance.app.use(bodyParser.urlencoded({ extended: true }));
+    instance.app.use(bodyParser.urlencoded({extended: true}));
 
     instance.app.ws("/logs", (websocket: ws, _req: Request) => {
       this.embark.events.on("log", (level: string, message: string) => {
-        websocket.send(JSON.stringify({ msg: message, msg_clear: message.stripColors, logLevel: level }), () => { });
+        websocket.send(JSON.stringify({msg: message, msg_clear: message.stripColors, logLevel: level}), () => {});
       });
     });
 
     if (this.plugins) {
       instance.app.get("/embark-api/plugins", (_req, res: Response) => {
-        res.send(JSON.stringify(this.plugins.plugins.map((plugin) => ({ name: plugin.name }))));
+        res.send(JSON.stringify(this.plugins.plugins.map((plugin) => ({name: plugin.name}))));
       });
 
       const callDescriptions: CallDescription[] = this.plugins.getPluginsProperty("apiCalls", "apiCalls");

@@ -50,6 +50,12 @@ import { compact, last, recursiveMerge, groupBy } from './collections';
 import { prepareForCompilation } from './solidity/remapImports';
 import { File, getExternalContractUrl, Types } from './file';
 
+import {
+  findPackageFromRoot,
+  findPackageFromRootSync,
+  isInsideMonorepo
+} from './monorepo';
+
 function timer(ms) {
   const then = Date.now();
   return new Promise(resolve => (
@@ -312,6 +318,8 @@ const Utils = {
   soliditySha3,
   recursiveMerge,
   prepareContractsConfig,
+  findPackageFromRoot,
+  findPackageFromRootSync,
   getWeiBalanceFromString,
   getHexBalanceFromString,
   getExternalContractUrl,
@@ -321,6 +329,7 @@ const Utils = {
   httpsGet,
   httpGetJson,
   httpsGetJson,
+  isInsideMonorepo,
   pingEndpoint,
   setUpEnv,
   sha512,
